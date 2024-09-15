@@ -2,6 +2,8 @@
 
 package br.edu.satc.todolistcompose.ui.screens
 
+import AppDatabase
+import TaskData
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,6 +31,7 @@ import androidx.compose.material3.TopAppBarDefaults.topAppBarColors
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,38 +40,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import br.edu.satc.todolistcompose.TaskData
 import br.edu.satc.todolistcompose.ui.components.TaskCard
 import kotlinx.coroutines.launch
 
-
-@Preview(showBackground = true)
 @Composable
-fun HomeScreen() {
-
-    // states by remember
-    // Guardam valores importantes de controle em nossa home
+fun HomeScreen(database: AppDatabase) {
     var showBottomSheet by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
 
-    /**
-     * O componente Scaffold facilita a construção de telas seguindo as guidelines
-     * do Google / Android / Material Design 3.
-     * Com ele podemos facilmente incluir uma TopBar, BottomBar, FAB, etc.
-     */
     Scaffold(
-
-        /**
-         * Aqui informamos como desejamos o comportamento da Tela quando
-         * for realizado um "scroll" na lista
-         * */
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-
-        /**
-         * Aqui declaramos nossa Top Bar e o conteúdo dela
-         * */
         topBar = {
             TopAppBar(
                 colors = topAppBarColors(
@@ -76,70 +58,44 @@ fun HomeScreen() {
                     titleContentColor = MaterialTheme.colorScheme.primary,
                 ),
                 title = { Text(text = "ToDoList UniSATC") },
-                actions =
-                {
-                    /**
-                     * Este é o botão de Settings que aparece no canto direito da TopBar
-                     * Podemos usar ele para acessar alguma configuração do App.
-                     * * */
+                actions = {
                     IconButton(onClick = { /* do something */ }) {
                         Icon(
                             Icons.Rounded.Settings,
-                            contentDescription = ""
+                            contentDescription = null
                         )
                     }
                 },
-                /**
-                 * Aplicamos um comportamento para o scroll da TopBar
-                 * Neste caso, queremos que ela fique fixa.
-                 * TopAppBarDefaults.pinnedScrollBehavior
-                 */
                 scrollBehavior = scrollBehavior
             )
         },
-
-        /**
-         * Aqui nosso FAB (Float Action Button).
-         * Ele sempre fica ao pé da tela, a direita. Serve para disparar a ação principal da tela.
-         * Neste caso, vamos usar para criar uma nova Task. Portanto ao clicar no button,
-         * chamamos nosso "bottom sheet" que cria uma nova Task.
-         */
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 text = { Text("Nova tarefa") },
-                icon = { Icon(Icons.Filled.Add, contentDescription = "") },
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 onClick = {
                     showBottomSheet = true
                 }
             )
         }
     ) { innerPadding ->
-        /**
-         * Aqui exibimos o conteúdo da tela.
-         * O que aparece no "meio".
-         * Para ficar mais organizado, montei o conteúdo em functions separadas.
-         * */
-        HomeContent(innerPadding)
+        // Passa a instância do banco de dados para o HomeContent
+        HomeContent(innerPadding = innerPadding, database = database)
         NewTask(showBottomSheet = showBottomSheet) { showBottomSheet = false }
-
     }
 }
 
 @Composable
-fun HomeContent(innerPadding: PaddingValues) {
+fun HomeContent(innerPadding: PaddingValues, database: AppDatabase) {
+    val taskDao = database.taskDao()
+    var tasks by remember { mutableStateOf(emptyList<TaskData>()) }
+    val coroutineScope = rememberCoroutineScope()
 
-    val tasks = mutableListOf<TaskData>()
-    for (i in 0..5) {
-        tasks.add(TaskData("Tarefa " + i, "Descricao " + i, i % 2 == 0))
+    LaunchedEffect(Unit) {
+        coroutineScope.launch {
+            tasks = taskDao.getAllTasks()
+        }
     }
-
-    /**
-     * Aqui simplesmente temos uma Column com o nosso conteúdo.
-     * A chamada verticalScroll(rememberScrollState()), passada para o Modifier,
-     * avisa que o conteúdo será uma lista que pode precisar de scroll nessa tela.
-     *
-     * TaskCard exibe o conteúdo de uma tarefa. O conteúdo pode ser passado na chamada da function
-     */
 
     Column(
         modifier = Modifier
@@ -152,15 +108,18 @@ fun HomeContent(innerPadding: PaddingValues) {
         verticalArrangement = Arrangement.Top
     ) {
         for (task in tasks) {
-            TaskCard(task.title, task.description, task.complete)
+            TaskCard(
+                task = task,
+                onTaskCompleteChange = { updatedTask ->
+                    coroutineScope.launch {
+                        taskDao.updateTask(updatedTask)
+                    }
+                }
+            )
         }
     }
 }
 
-/**
- * NewTask abre uma janela estilo "modal". No Android conhecida por BottomSheet.
- * Aqui podemos "cadastrar uma nova Task".
- */
 @Composable
 fun NewTask(showBottomSheet: Boolean, onComplete: () -> Unit) {
     val sheetState = rememberModalBottomSheetState()
@@ -180,7 +139,6 @@ fun NewTask(showBottomSheet: Boolean, onComplete: () -> Unit) {
             sheetState = sheetState,
 
             ) {
-            // Sheet content
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
